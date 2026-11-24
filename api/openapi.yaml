@@ -1,0 +1,56 @@
+openapi: 3.0.3
+info:
+  title: TicketFlow API
+  description: Backend API specification for TicketFlow event ticketing platform.
+  version: 1.0.0
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+paths:
+  /healthz:
+    get:
+      summary: Liveness and system health probe
+      description: Returns service health status, application name, environment, and current UTC timestamp.
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  application:
+                    type: string
+                    example: ticketflow
+                  environment:
+                    type: string
+                    example: development
+                  timestamp:
+                    type: string
+                    format: date-time
+                    example: '2026-11-24T15:30:00Z'
+  /livez:
+    get:
+      summary: Minimal liveness probe
+      description: Returns minimal status indication for container orchestrators (e.g. Kubernetes, Docker).
+      responses:
+        '200':
+          description: Process is running
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: alive
+  /api/v1/health:
+    get:
+      summary: API v1 Health Check
+      description: API versioned health check endpoint.
+      responses:
+        '200':
+          description: Service is healthy
