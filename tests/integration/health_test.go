@@ -2,7 +2,9 @@ package integration
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -14,6 +16,14 @@ import (
 	"github.com/ticketflow/ticketflow/internal/handler"
 	"github.com/ticketflow/ticketflow/internal/server"
 )
+
+type mockPinger struct {
+	err error
+}
+
+func (m *mockPinger) Ping(_ context.Context) error {
+	return m.err
+}
 
 func TestHealthEndpointsE2E(t *testing.T) {
 	cfg := &config.Config{
@@ -27,7 +37,7 @@ func TestHealthEndpointsE2E(t *testing.T) {
 
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, nil))
-	srv := server.NewServer(cfg, logger)
+	srv := server.NewServer(cfg, logger, &mockPinger{})
 
 	// Spin up a live local HTTP test server
 	ts := httptest.NewServer(srv.Engine())
@@ -64,6 +74,9 @@ func TestHealthEndpointsE2E(t *testing.T) {
 		}
 		if payload.Environment != "test" {
 			t.Errorf("expected env 'test', got %q", payload.Environment)
+		}
+		if payload.Database != "up" {
+			t.Errorf("expected database 'up', got %q", payload.Database)
 		}
 	})
 
@@ -104,4 +117,46 @@ func TestHealthEndpointsE2E(t *testing.T) {
 			t.Errorf("expected 200 OK, got %d", resp.StatusCode)
 		}
 	})
+}
+
+func TestHealthEndpointsE2E_DBDown(t *testing.T) {
+	cfg := &config.Config{
+		AppEnv:          "test",
+		Port:            "8080",
+		ReadTimeout:     5 * time.Second,
+		WriteTimeout:    5 * time.Second,
+		IdleTimeout:     10 * time.Second,
+		ShutdownTimeout: 5 * time.Second,
+	}
+
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, nil))
+	srv := server.NewServer(cfg, logger, &mockPinger{err: errors.New("connection refused")})
+
+	ts := httptest.NewServer(srv.Engine())
+	defer ts.Close()
+
+	client := ts.Client()
+
+	resp, err := client.Get(ts.URL + "/healthz")
+	if err != nil {
+		t.Fatalf("failed to execute GET /healthz: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Errorf("expected 503 Service Unavailable, got %d", resp.StatusCode)
+	}
+
+	var payload handler.HealthResponse
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatalf("failed to decode JSON: %v", err)
+	}
+
+	if payload.Status != "degraded" {
+		t.Errorf("expected status 'degraded', got %q", payload.Status)
+	}
+	if payload.Database != "down" {
+		t.Errorf("expected database 'down', got %q", payload.Database)
+	}
 }

@@ -22,7 +22,7 @@ type Server struct {
 }
 
 // NewServer initializes the HTTP server, engine, middlewares, and routes.
-func NewServer(cfg *config.Config, logger *slog.Logger) *Server {
+func NewServer(cfg *config.Config, logger *slog.Logger, db handler.DBPinger) *Server {
 	if cfg.IsProduction() {
 		gin.SetMode(gin.ReleaseMode)
 	} else if cfg.AppEnv == "test" {
@@ -36,7 +36,7 @@ func NewServer(cfg *config.Config, logger *slog.Logger) *Server {
 	engine.Use(middleware.Recovery(logger))
 
 	// Register root health and readiness probes
-	healthHdl := handler.NewHealthHandler(cfg)
+	healthHdl := handler.NewHealthHandler(cfg, db)
 	engine.GET("/healthz", healthHdl.Healthz)
 	engine.GET("/livez", healthHdl.Livez)
 

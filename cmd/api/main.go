@@ -9,6 +9,7 @@ import (
 	"syscall"
 
 	"github.com/ticketflow/ticketflow/internal/config"
+	"github.com/ticketflow/ticketflow/internal/infrastructure/postgres"
 	"github.com/ticketflow/ticketflow/internal/server"
 )
 
@@ -39,8 +40,22 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// 4. Initialize and run HTTP server
-	srv := server.NewServer(cfg, logger)
+	// 4. Initialize PostgreSQL connection pool
+	dbPool, err := postgres.NewPool(ctx, cfg.DB)
+	if err != nil {
+		return fmt.Errorf("failed to connect to database: %w", err)
+	}
+	defer dbPool.Close()
+
+	logger.Info("Connected to PostgreSQL",
+		slog.String("host", cfg.DB.Host),
+		slog.String("port", cfg.DB.Port),
+		slog.String("database", cfg.DB.DBName),
+		slog.String("schema", cfg.DB.Schema),
+	)
+
+	// 5. Initialize and run HTTP server
+	srv := server.NewServer(cfg, logger, dbPool)
 	if err := srv.Run(ctx); err != nil {
 		return fmt.Errorf("server error: %w", err)
 	}

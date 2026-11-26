@@ -32,3 +32,9 @@ go.work.sum
 
 # Temporary & debug files
 tmp/
+
+# Frontend (Node.js / Vite / React)
+node_modules/
+frontend/dist/
+frontend/.env
+frontend/.env.local

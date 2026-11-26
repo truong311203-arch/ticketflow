@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,14 @@ import (
 
 	"github.com/ticketflow/ticketflow/internal/config"
 )
+
+type mockPinger struct {
+	err error
+}
+
+func (m *mockPinger) Ping(_ context.Context) error {
+	return m.err
+}
 
 func TestNewServerRoutes(t *testing.T) {
 	cfg := &config.Config{
@@ -25,7 +34,7 @@ func TestNewServerRoutes(t *testing.T) {
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, nil))
 
-	srv := NewServer(cfg, logger)
+	srv := NewServer(cfg, logger, &mockPinger{})
 	if srv == nil {
 		t.Fatal("expected server instance, got nil")
 	}
@@ -55,6 +64,43 @@ func TestNewServerRoutes(t *testing.T) {
 	}
 }
 
+func TestNewServerRoutes_DBDown(t *testing.T) {
+	cfg := &config.Config{
+		AppEnv:          "test",
+		Port:            "8080",
+		ReadTimeout:     5 * time.Second,
+		WriteTimeout:    5 * time.Second,
+		IdleTimeout:     10 * time.Second,
+		ShutdownTimeout: 5 * time.Second,
+	}
+
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, nil))
+	srv := NewServer(cfg, logger, &mockPinger{err: errors.New("db down")})
+
+	testCases := []struct {
+		name       string
+		path       string
+		expectCode int
+	}{
+		{"Healthz returns 503", "/healthz", http.StatusServiceUnavailable},
+		{"API v1 Health returns 503", "/api/v1/health", http.StatusServiceUnavailable},
+		{"Livez remains 200", "/livez", http.StatusOK},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			req, _ := http.NewRequest(http.MethodGet, tc.path, nil)
+			srv.Engine().ServeHTTP(w, req)
+
+			if w.Code != tc.expectCode {
+				t.Errorf("path %s: expected %d, got %d", tc.path, tc.expectCode, w.Code)
+			}
+		})
+	}
+}
+
 func TestServerGracefulShutdown(t *testing.T) {
 	cfg := &config.Config{
 		AppEnv:          "test",
@@ -67,7 +113,7 @@ func TestServerGracefulShutdown(t *testing.T) {
 
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, nil))
-	srv := NewServer(cfg, logger)
+	srv := NewServer(cfg, logger, &mockPinger{})
 
 	ctx, cancel := context.WithCancel(context.Background())
 

@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -14,25 +15,44 @@ type HealthResponse struct {
 	Application string    `json:"application"`
 	Environment string    `json:"environment"`
 	Timestamp   time.Time `json:"timestamp"`
+	Database    string    `json:"database"`
+}
+
+type DBPinger interface {
+	Ping(ctx context.Context) error
 }
 
 // HealthHandler handles health check requests.
 type HealthHandler struct {
 	cfg *config.Config
+	db  DBPinger
 }
 
 // NewHealthHandler creates a new HealthHandler.
-func NewHealthHandler(cfg *config.Config) *HealthHandler {
-	return &HealthHandler{cfg: cfg}
+func NewHealthHandler(cfg *config.Config, db DBPinger) *HealthHandler {
+	return &HealthHandler{cfg: cfg, db: db}
 }
 
 // Healthz responds with a full system status probe.
 func (h *HealthHandler) Healthz(c *gin.Context) {
+	pingCtx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
+	defer cancel()
+	if h.db == nil || h.db.Ping(pingCtx) != nil {
+		c.JSON(http.StatusServiceUnavailable, HealthResponse{
+			Status:      "degraded",
+			Application: "ticketflow",
+			Environment: h.cfg.AppEnv,
+			Timestamp:   time.Now().UTC(),
+			Database:    "down",
+		})
+		return
+	}
 	c.JSON(http.StatusOK, HealthResponse{
 		Status:      "ok",
 		Application: "ticketflow",
 		Environment: h.cfg.AppEnv,
 		Timestamp:   time.Now().UTC(),
+		Database:    "up",
 	})
 }
 
